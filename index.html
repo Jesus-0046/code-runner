@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Code Runner - Juego de Plataformas</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+
+        body {
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', monospace;
+        }
+
+        .game-container {
+            text-align: center;
+            padding: 20px;
+        }
+
+        canvas {
+            border: 3px solid #22c55e;
+            border-radius: 12px;
+            box-shadow: 0 0 30px rgba(34, 197, 94, 0.3);
+            background: linear-gradient(180deg, #0a0f1a 0%, #1a2a3a 100%);
+            cursor: pointer;
+        }
+
+        .game-info {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 20px;
+            padding: 15px 25px;
+            background: rgba(30, 41, 59, 0.9);
+            border-radius: 50px;
+            border: 1px solid #22c55e;
+            backdrop-filter: blur(10px);
+        }
+
+        .score-box, .lives-box {
+            font-size: 24px;
+            font-weight: bold;
+            color: #fff;
+        }
+
+        .score-box span, .lives-box span {
+            color: #22c55e;
+            font-size: 32px;
+        }
+
+        .controls-info {
+            display: flex;
+            gap: 20px;
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
+        .controls-info kbd {
+            background: #0f172a;
+            padding: 5px 10px;
+            border-radius: 8px;
+            border: 1px solid #22c55e;
+            color: #22c55e;
+            font-weight: bold;
+        }
+
+        .restart-btn {
+            background: linear-gradient(135deg, #22c55e, #38bdf8);
+            border: none;
+            padding: 10px 25px;
+            border-radius: 30px;
+            color: #0f172a;
+            font-weight: bold;
+            cursor: pointer;
+            font-family: 'Courier New', monospace;
+            font-size: 16px;
+            transition: transform 0.2s;
+        }
+
+        .restart-btn:hover {
+            transform: scale(1.05);
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        .game-over {
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0,0,0,0.9);
+            padding: 40px;
+            border-radius: 20px;
+            text-align: center;
+            border: 2px solid #22c55e;
+            display: none;
+            z-index: 100;
+        }
+
+        .game-over h2 {
+            color: #22c55e;
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+
+        .game-over p {
+            color: white;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas" width="800" height="500"></canvas>
+        
+        <div class="game-info">
+            <div class="score-box">
+                ☕ <span id="score">0</span>
+            </div>
+            <div class="controls-info">
+                <kbd>←</kbd> <kbd>→</kbd> Mover
+                <kbd>↑</kbd> <kbd>Espacio</kbd> Saltar
+            </div>
+            <div class="lives-box">
+                ❤️ <span id="lives">3</span>
+            </div>
+            <button class="restart-btn" onclick="reiniciarJuego()">🔄 Reiniciar</button>
+        </div>
+    </div>
+
+    <div id="gameOverModal" class="game-over">
+        <h2>💀 GAME OVER 💀</h2>
+        <p id="finalScore">Tu puntuación: 0</p>
+        <button class="restart-btn" onclick="reiniciarJuego()">🔄 Jugar de nuevo</button>
+    </div>
+
+    <script>
+        // Canvas y contexto
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        // Dimensiones del canvas
+        const ANCHO = 800;
+        const ALTO = 500;
+        canvas.width = ANCHO;
+        canvas.height = ALTO;
+
+        // ========== JUGADOR ==========
+        let jugador = {
+            x: 100,
+            y: 300,
+            ancho: 30,
+            alto: 30,
+            velocidadX: 0,
+            velocidadY: 0,
+            enSuelo: false,
+            vida: 3
+        };
+
+        // ========== PLATAFORMAS ==========
+        let plataformas = [
+            { x: 0, y: ALTO - 40, ancho: ANCHO, alto: 40 }, // Suelo
+            { x: 150, y: 400, ancho: 100, alto: 20 },
+            { x: 350, y: 330, ancho: 100, alto: 20 },
+            { x: 550, y: 260, ancho: 100, alto: 20 },
+            { x: 650, y: 400, ancho: 80, alto: 20 },
+            { x: 50, y: 180, ancho: 80, alto: 20 },
+            { x: 500, y: 120, ancho: 80, alto: 20 }
+        ];
+
+        // ========== OBJETOS ==========
+        let cafes = [];
+        let bugs = [];
+
+        // ========== CONFIGURACIÓN DEL JUEGO ==========
+        let puntuacion = 0;
+        let juegoActivo = true;
+        let frames = 0;
+
+        // Gravedad y movimiento
+        const GRAVEDAD = 0.8;
+        const FUERZA_SALTO = -12;
+        const VELOCIDAD_MOVIMIENTO = 5;
+
+        // Controles
+        let teclas = {
+            izquierda: false,
+            derecha: false,
+            saltar: false
+        };
+
+        // ========== GENERAR OBJETOS ==========
+        function generarCafes() {
+            if (cafes.length < 5 && Math.random() < 0.02) {
+                cafes.push({
+                    x: Math.random() * (ANCHO - 20),
+                    y: 0,
+                    ancho: 20,
+                    alto: 20,
+                    recolectado: false
+                });
+            }
+        }
+
+        function generarBugs() {
+            if (bugs.length < 3 && Math.random() < 0.01) {
+                bugs.push({
+                    x: Math.random() * (ANCHO - 25),
+                    y: 0,
+                    ancho: 25,
+                    alto: 25,
+                    activo: true
+                });
+            }
+        }
+
+        // ========== FÍSICAS Y COLISIONES ==========
+        function aplicarGravedad() {
+            jugador.velocidadY += GRAVEDAD;
+            jugador.y += jugador.velocidadY;
+        }
+
+        function moverJugador() {
+            if (teclas.izquierda && jugador.x > 0) {
+                jugador.velocidadX = -VELOCIDAD_MOVIMIENTO;
+            } else if (teclas.derecha && jugador.x + jugador.ancho < ANCHO) {
+                jugador.velocidadX = VELOCIDAD_MOVIMIENTO;
+            } else {
+                jugador.velocidadX = 0;
+            }
+            jugador.x += jugador.velocidadX;
+        }
+
+        function colisionPlataformas() {
+            jugador.enSuelo = false;
+            
+            for (let plataforma of plataformas) {
+                if (jugador.x + jugador.ancho > plataforma.x &&
+                    jugador.x < plataforma.x + plataforma.ancho &&
+                    jugador.y + jugador.alto > plataforma.y &&
+                    jugador.y + jugador.alto <= plataforma.y + plataforma.alto + jugador.velocidadY) {
+                    
+                    if (jugador.velocidadY >= 0) {
+                        jugador.y = plataforma.y - jugador.alto;
+                        jugador.velocidadY = 0;
+                        jugador.enSuelo = true;
+                    }
+                }
+            }
+        }
+
+        function colisionObjetos() {
+            // Recolectar café
+            for (let i = 0; i < cafes.length; i++) {
+                let cafe = cafes[i];
+                if (!cafe.recolectado &&
+                    jugador.x + jugador.ancho > cafe.x &&
+                    jugador.x < cafe.x + cafe.ancho &&
+                    jugador.y + jugador.alto > cafe.y &&
+                    jugador.y < cafe.y + cafe.alto) {
+                    
+                    cafe.recolectado = true;
+                    puntuacion += 10;
+                    document.getElementById('score').textContent = puntuacion;
+                }
+            }
+            cafes = cafes.filter(cafe => !cafe.recolectado);
+
+            // Chocar con bugs
+            for (let i = 0; i < bugs.length; i++) {
+                let bug = bugs[i];
+                if (bug.activo &&
+                    jugador.x + jugador.ancho > bug.x &&
+                    jugador.x < bug.x + bug.ancho &&
+                    jugador.y + jugador.alto > bug.y &&
+                    jugador.y < bug.y + bug.alto) {
+                    
+                    bug.activo = false;
+                    jugador.vida--;
+                    document.getElementById('lives').textContent = jugador.vida;
+                    
+                    if (jugador.vida <= 0) {
+                        juegoActivo = false;
+                        document.getElementById('finalScore').textContent = `Tu puntuación: ${puntuacion}`;
+                        document.getElementById('gameOverModal').style.display = 'block';
+                    }
+                }
+            }
+            bugs = bugs.filter(bug => bug.activo);
+        }
+
+        // ========== SALTO ==========
+        function saltar() {
+            if (jugador.enSuelo && juegoActivo) {
+                jugador.velocidadY = FUERZA_SALTO;
+                jugador.enSuelo = false;
+            }
+        }
+
+        // ========== DIBUJAR ==========
+        function dibujarJugador() {
+            ctx.fillStyle = '#22c55e';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#22c55e';
+            ctx.fillRect(jugador.x, jugador.y, jugador.ancho, jugador.alto);
+            
+            // Cara del personaje
+            ctx.fillStyle = '#0f172a';
+            ctx.fillRect(jugador.x + 5, jugador.y + 8, 6, 6);
+            ctx.fillRect(jugador.x + 19, jugador.y + 8, 6, 6);
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(jugador.x + 12, jugador.y + 18, 6, 4);
+            ctx.shadowBlur = 0;
+        }
+
+        function dibujarPlataformas() {
+            for (let plataforma of plataformas) {
+                ctx.fillStyle = '#38bdf8';
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = '#38bdf8';
+                ctx.fillRect(plataforma.x, plataforma.y, plataforma.ancho, plataforma.alto);
+            }
+            ctx.shadowBlur = 0;
+        }
+
+        function dibujarObjetos() {
+            // Café
+            for (let cafe of cafes) {
+                ctx.fillStyle = '#f59e0b';
+                ctx.beginPath();
+                ctx.arc(cafe.x + cafe.ancho/2, cafe.y + cafe.alto/2, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = '12px monospace';
+                ctx.fillText('☕', cafe.x + 5, cafe.y + 16);
+            }
+            
+            // Bugs
+            for (let bug of bugs) {
+                ctx.fillStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.arc(bug.x + bug.ancho/2, bug.y + bug.alto/2, 12, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = '#fff';
+                ctx.font = '14px monospace';
+                ctx.fillText('🐛', bug.x + 5, bug.y + 18);
+            }
+        }
+
+        function dibujar() {
+            ctx.clearRect(0, 0, ANCHO, ALTO);
+            
+            dibujarPlataformas();
+            dibujarObjetos();
+            dibujarJugador();
+            
+            // Mostrar mensaje si juego terminado
+            if (!juegoActivo) {
+                ctx.fillStyle = 'rgba(0,0,0,0.7)';
+                ctx.fillRect(0, 0, ANCHO, ALTO);
+                ctx.fillStyle = '#22c55e';
+                ctx.font = 'bold 30px monospace';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', ANCHO/2, ALTO/2);
+                ctx.font = '16px monospace';
+                ctx.fillText('Presiona "Reiniciar"', ANCHO/2, ALTO/2 + 50);
+            }
+        }
+
+        // ========== ACTUALIZAR JUEGO ==========
+        function actualizar() {
+            if (!juegoActivo) return;
+            
+            moverJugador();
+            aplicarGravedad();
+            colisionPlataformas();
+            colisionObjetos();
+            
+            // Generar objetos
+            generarCafes();
+            generarBugs();
+            
+            // Mover objetos hacia abajo
+            for (let cafe of cafes) {
+                cafe.y += 2;
+                if (cafe.y > ALTO) cafe.recolectado = true;
+            }
+            for (let bug of bugs) {
+                bug.y += 2;
+                if (bug.y > ALTO) bug.activo = false;
+            }
+            
+            // Limpiar objetos fuera de pantalla
+            cafes = cafes.filter(cafe => cafe.y < ALTO);
+            bugs = bugs.filter(bug => bug.y < ALTO);
+        }
+
+        // ========== GAME LOOP ==========
+        function gameLoop() {
+            actualizar();
+            dibujar();
+            requestAnimationFrame(gameLoop);
+        }
+
+        // ========== REINICIAR JUEGO ==========
+        function reiniciarJuego() {
+            jugador = {
+                x: 100,
+                y: 300,
+                ancho: 30,
+                alto: 30,
+                velocidadX: 0,
+                velocidadY: 0,
+                enSuelo: false,
+                vida: 3
+            };
+            puntuacion = 0;
+            juegoActivo = true;
+            cafes = [];
+            bugs = [];
+            
+            document.getElementById('score').textContent = '0';
+            document.getElementById('lives').textContent = '3';
+            document.getElementById('gameOverModal').style.display = 'none';
+        }
+
+        // ========== CONTROLES DE TECLADO ==========
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft') teclas.izquierda = true;
+            if (e.key === 'ArrowRight') teclas.derecha = true;
+            if (e.key === 'ArrowUp' || e.key === ' ') {
+                e.preventDefault();
+                saltar();
+            }
+        });
+
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft') teclas.izquierda = false;
+            if (e.key === 'ArrowRight') teclas.derecha = false;
+        });
+
+        // Evitar scroll con espacio
+        window.addEventListener('keydown', function(e) {
+            if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                e.preventDefault();
+            }
+        });
+
+        // Iniciar juego
+        gameLoop();
+    </script>
+</body>
+</html>
